@@ -13,18 +13,31 @@ using namespace std;
 
 mutex print_mutex;
 
+struct shard{
+    unordered_map<string,string> mp;
+    shared_mutex mut;
+};
+
 class HashTable
 {
-    unordered_map<string, string> mp;
+    vector<unique_ptr<shard>> shards;
+    int NUM_SHARDS;
+
+    // unordered_map<string, string> mp;
     string filename;
     ofstream outputFile;
-    mutable shared_mutex map_mutex;
+    // mutable shared_mutex map_mutex;
 
     mutex wal_mut;
     condition_variable wal_cv;
     queue<string> wal_queue;
     bool stop_wal;
     thread wal_thread;
+
+    size_t getShard(const string& key) const
+    {
+        return hash<string>{}(key) % NUM_SHARDS;
+    }
 
     void WAL_worker(){
         while(true){
@@ -47,11 +60,15 @@ class HashTable
     }
 
 public:
-    HashTable(const string &filename) : stop_wal(false)
+    HashTable(const string &filename,int num_shards) : stop_wal(false),NUM_SHARDS(num_shards)
     {
         this->filename = filename;
 
         ifstream file(filename);
+        
+        for(int i = 0;i < num_shards;i++){
+            shards.push_back(make_unique<shard>());
+        }
 
         if (file.is_open())
         {
@@ -63,14 +80,18 @@ public:
                 {
                     file >> k >> v;
 
-                    mp[k] = v;
+                    int shard_num = hash<string>{}(k) % NUM_SHARDS;
+
+                    shards[shard_num]->mp[k] = v;
                 }
 
                 else if (op == "DEL")
                 {
                     file >> k;
 
-                    mp.erase(k);
+                    int shard_num = hash<string>{}(k) % NUM_SHARDS;
+
+                    shards[shard_num]->mp.erase(k);
                 }
 
                 else
@@ -107,6 +128,9 @@ public:
 
     void set(const string &key, const string &val)
     {
+
+        int shard_num = hash<string>{} (key) % NUM_SHARDS; 
+
         {
             unique_lock<mutex> lock(wal_mut);
             wal_queue.push("SET " + key + " " + val);
@@ -114,25 +138,30 @@ public:
         wal_cv.notify_one();
 
         {
-            unique_lock<shared_mutex> lock(map_mutex);
-            mp[key] = val;
+            unique_lock<shared_mutex> lock(shards[shard_num]->mut);
+            shards[shard_num]->mp[key] = val;
         }
     }
 
     string get(const string &key)
     {
-        shared_lock<shared_mutex> lock(map_mutex);
+        int shard_num = hash<string>{}(key) % NUM_SHARDS;
+        {
+        shared_lock<shared_mutex> lock(shards[shard_num]->mut);
 
-        auto it = mp.find(key);
+        auto it = shards[shard_num]->mp.find(key);
 
-        if (it == mp.end())
+        if (it == shards[shard_num]->mp.end())
             return "Key Not Found";
 
         return it->second;
+        }
     }
 
     void del(const string &key)
     {
+        int shard_num = hash<string>{}(key) % NUM_SHARDS;
+
         {
             unique_lock<mutex> lock(wal_mut);
 
@@ -141,9 +170,9 @@ public:
         wal_cv.notify_one();
 
         {
-            unique_lock<shared_mutex> lock(map_mutex);
+            unique_lock<shared_mutex> lock(shards[shard_num]->mut);
 
-            mp.erase(key);
+            shards[shard_num]->mp.erase(key);
         }
     }
 };
@@ -206,7 +235,10 @@ class batchTask : public Task{
         batchTask(vector<Task*> &tasks) : tasks(tasks){}
 
         void execute() override{
-            for(auto &task : tasks) task -> execute();
+            for(auto &task : tasks){
+                task -> execute();
+                delete task;
+            }
         }
 };
 
@@ -346,7 +378,7 @@ class Dispatcher{
 
 int main()
 {
-    HashTable tb("cache.log");
+    HashTable tb("cache.log",16);
     ThreadPool pool(8);
     Dispatcher dispatcher(pool);
 
