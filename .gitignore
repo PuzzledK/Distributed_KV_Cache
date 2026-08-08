@@ -3,3 +3,6 @@ out
 testBench.cpp
 .vscode
 bench*
+temp
+build
+kv_cache
