@@ -11,4 +11,3 @@ temp
 cache_*.log
 kv_cache
 kv_client
-scripts
