@@ -82,6 +82,14 @@ void HashTable :: set(const std::string &key,const std::string &val){
 }
 
 std::string HashTable :: get(const std::string &key){
+    std::string value;
+    if (!get(key, value)) {
+        return "Key Not Found";
+    }
+    return value;
+}
+
+bool HashTable :: get(const std::string &key,std::string &value){
     int shardNum = getShard(key);
     
     {
@@ -89,10 +97,11 @@ std::string HashTable :: get(const std::string &key){
         
         auto it = shards[shardNum] -> mp.find(key);
         if(it == shards[shardNum] -> mp.end()){
-            return "Key Not Found";
+            return false;
         }
 
-        return it -> second;
+        value = it -> second;
+        return true;
     }
 }
 

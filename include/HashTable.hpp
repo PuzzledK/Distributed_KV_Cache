@@ -38,6 +38,7 @@ class HashTable{
 
     void set(const std::string &key,const std::string &val);
     std::string get(const std::string &key);
+    bool get(const std::string &key,std::string &value);
     void del(const std::string &key);
 
     ~HashTable();

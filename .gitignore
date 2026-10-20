@@ -3,6 +3,12 @@ out
 testBench.cpp
 .vscode
 bench*
-temp
+!scripts/benchmark.py
 build
+kv_cache.exe
+kv_client.exe
+temp
+cache_*.log
 kv_cache
+kv_client
+scripts
